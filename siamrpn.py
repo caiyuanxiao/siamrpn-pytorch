@@ -1,11 +1,12 @@
-from __future__ import absolute_import, division
+from __future__ import absolute_import, division  #导入python未来支持的绝对引入、divison精确除法
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
+import numpy as np                #numpy是python自带的数值扩展计算，可以存储和处理大型矩阵
 import cv2
-from collections import namedtuple
+from collections import namedtuple     #collections模块提供了一些有用的集合类，可以根据需要选用。
+                                       #用namedtuple可以很方便地定义一种数据类型，它具备tuple的不变性，又可以根据属性来引用
 from got10k.trackers import Tracker
 
 
@@ -18,7 +19,8 @@ class SiamRPN(nn.Module):
             # conv1
             nn.Conv2d(3, 192, 11, 2),
             nn.BatchNorm2d(192),
-            nn.ReLU(inplace=True),
+            nn.ReLU(inplace=True),        #inplace=True的意思是进行原地操作，
+                                          #对上层网络传递下来的数据直接进行修改，好处就是可以节省运算内存，不用加储存变量
             nn.MaxPool2d(3, 2),
             # conv2
             nn.Conv2d(192, 512, 5, 1),
@@ -70,7 +72,8 @@ class SiamRPN(nn.Module):
 
 class TrackerSiamRPN(Tracker):
 
-    def __init__(self, net_path=None, **kargs):
+    def __init__(self, net_path=None, **kargs):        #加*时，函数可接受任意多个参数，全部放入一个元组中
+                                                       #加**时，函数接受参数时，返回为字典，参数形式应为键名=值名
         super(TrackerSiamRPN, self).__init__(
             name='SiamRPN', is_deterministic=True)
         self.parse_args(**kargs)

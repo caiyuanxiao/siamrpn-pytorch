@@ -5,7 +5,7 @@ from got10k.experiments import *
 from siamrpn import TrackerSiamRPN
 
 
-if __name__ == '__main__':
+if __name__ == '__main__':    #name为当前模块名，当模块被直接运行时，以下代码被执行，当模块被导入时，以下代码不运行
     # setup tracker
     net_path = 'pretrained/siamrpn/model.pth'
     tracker = TrackerSiamRPN(net_path=net_path)

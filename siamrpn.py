@@ -10,18 +10,21 @@ from collections import namedtuple     #collections模块提供了一些有用�
 from got10k.trackers import Tracker
 
 
-class SiamRPN(nn.Module):
+class SiamRPN(nn.Module):               #nn.Module 是所有神经网络单元（neural network modules）的基类。
+                                        #pytorch在nn.Module中，实现了__call__方法，而在__call__方法中调用了forward函数。
 
     def __init__(self, anchor_num=5):
-        super(SiamRPN, self).__init__()
+        super(SiamRPN, self).__init__()    #首先找到SiamRPN的父类，然后把类SiamRPN的对象self转换为父类的对象，然后“被转
+                                           # 换”的父类对象调用自己的__init__函数
         self.anchor_num = anchor_num
-        self.feature = nn.Sequential(
+        self.feature = nn.Sequential(      #nn.Sequential表示一个有序的容器，神经网络模块将按照在传入构造器的顺序依次被添加到计算
+                                           #图中执行，同时以神经网络模块为元素的有序字典也可以作为传入参数。
             # conv1
-            nn.Conv2d(3, 192, 11, 2),
-            nn.BatchNorm2d(192),
+            nn.Conv2d(3, 192, 11, 2),      #3通道，输出192通道，卷积核大小11，步长2
+            nn.BatchNorm2d(192),           #对输出192通道的feature map批标准化
             nn.ReLU(inplace=True),        #inplace=True的意思是进行原地操作，
                                           #对上层网络传递下来的数据直接进行修改，好处就是可以节省运算内存，不用加储存变量
-            nn.MaxPool2d(3, 2),
+            nn.MaxPool2d(3, 2),           #卷积核大小3，步长2
             # conv2
             nn.Conv2d(192, 512, 5, 1),
             nn.BatchNorm2d(512),
@@ -39,38 +42,40 @@ class SiamRPN(nn.Module):
             nn.Conv2d(768, 512, 3, 1),
             nn.BatchNorm2d(512))
         
-        self.conv_reg_z = nn.Conv2d(512, 512 * 4 * anchor_num, 3, 1)
-        self.conv_reg_x = nn.Conv2d(512, 512, 3)
-        self.conv_cls_z = nn.Conv2d(512, 512 * 2 * anchor_num, 3, 1)
+        self.conv_reg_z = nn.Conv2d(512, 512 * 4 * anchor_num, 3, 1)  #通过CNN后，模板z的feature map通过一个卷积层升维，维数升为4k*512
+                                                                      #其中512为CNN输出通道，k为anchor数量，4表示dx,dy,dw,dh
+        self.conv_reg_x = nn.Conv2d(512, 512, 3)               #通过CNN后，搜索x的feature map不升维
+        self.conv_cls_z = nn.Conv2d(512, 512 * 2 * anchor_num, 3, 1)  #通过CNN后，模板z的feature map通过一个卷积层升维，维数升为2k*512
+                                                                     #其中512为CNN输出通道，k为anchor数量，2表示前景/背景分数
         self.conv_cls_x = nn.Conv2d(512, 512, 3)
         self.adjust_reg = nn.Conv2d(4 * anchor_num, 4 * anchor_num, 1)
 
     def forward(self, z, x):
         return self.inference(x, **self.learn(z))
 
-    def learn(self, z):
+    def learn(self, z):         #构建相关操作的核
         z = self.feature(z)
-        kernel_reg = self.conv_reg_z(z)
-        kernel_cls = self.conv_cls_z(z)
+        kernel_reg = self.conv_reg_z(z)    #使用升维后的模板作为reg分支的核
+        kernel_cls = self.conv_cls_z(z)    #使用升维后的模板作为cls分支的核
 
         k = kernel_reg.size()[-1]
         kernel_reg = kernel_reg.view(4 * self.anchor_num, 512, k, k)
         kernel_cls = kernel_cls.view(2 * self.anchor_num, 512, k, k)
 
-        return kernel_reg, kernel_cls
+        return kernel_reg, kernel_cls        #相关操作的核构建完毕
 
-    def inference(self, x, kernel_reg, kernel_cls):
+    def inference(self, x, kernel_reg, kernel_cls):   #定义相关操作
         x = self.feature(x)
         x_reg = self.conv_reg_x(x)
         x_cls = self.conv_cls_x(x)
         
-        out_reg = self.adjust_reg(F.conv2d(x_reg, kernel_reg))
-        out_cls = F.conv2d(x_cls, kernel_cls)
+        out_reg = self.adjust_reg(F.conv2d(x_reg, kernel_reg))    #reg分支进行相关
+        out_cls = F.conv2d(x_cls, kernel_cls)                      #cls分支进行相关
 
-        return out_reg, out_cls
+        return out_reg, out_cls        #输出reg分支、cls分支的相关结果（响应图）
 
 
-class TrackerSiamRPN(Tracker):
+class TrackerSiamRPN(Tracker):    
 
     def __init__(self, net_path=None, **kargs):        #加*时，函数可接受任意多个参数，全部放入一个元组中
                                                        #加**时，函数接受参数时，返回为字典，参数形式应为键名=值名
@@ -91,11 +96,11 @@ class TrackerSiamRPN(Tracker):
 
     def parse_args(self, **kargs):
         self.cfg = {
-            'exemplar_sz': 127,
-            'instance_sz': 271,
+            'exemplar_sz': 127,       #输入模板尺寸127
+            'instance_sz': 271,       #输入样本尺寸271
             'total_stride': 8,
             'context': 0.5,
-            'ratios': [0.33, 0.5, 1, 2, 3],
+            'ratios': [0.33, 0.5, 1, 2, 3],  #5种anchor尺寸
             'scales': [8,],
             'penalty_k': 0.055,
             'window_influence': 0.42,

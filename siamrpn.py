@@ -121,6 +121,7 @@ class TrackerSiamRPN(Tracker):
         for key, val in kargs.items():     #kargs.items()以列表的形式返回kargs的所有键值对，kargs为上面以字典形式输入的参数
             self.cfg.update({key: val})
         self.cfg = namedtuple('GenericDict', self.cfg.keys())(**self.cfg)  #建立一个命名元组，名字为GenericDict,元素为self.cfg.keys
+                                                                           #cfg文件一般是程序运行的配置文件
 
     def init(self, image, box):
         image = np.asarray(image)       #将输入转换为矩阵格式
@@ -175,7 +176,7 @@ class TrackerSiamRPN(Tracker):
         # search image
         instance_image = self._crop_and_resize(
             image, self.center, self.x_sz,
-            self.cfg.instance_sz, self.avg_color)
+            self.cfg.instance_sz, self.avg_color)              #构建搜索图像
 
         # classification and regression outputs
         instance_image = torch.from_numpy(instance_image).to(
@@ -197,8 +198,14 @@ class TrackerSiamRPN(Tracker):
         penalty = self._create_penalty(self.target_sz, offsets)
 
         # response
-        response = F.softmax(out_cls.permute(
+        response = F.softmax(out_cls.permute(                      
             1, 2, 3, 0).contiguous().view(2, -1), dim=0).data[1].cpu().numpy()
+                                                                     #.permute()将tensor的维度换位。三维的tensor维度序号分别为0,1,2
+                                                                     #如一个tensor=[77,88,99],使用permute（2,1,0）转换为tensor=[99,88,77]
+                                                                     #.view()是改变tensor的维数，比如一个2×3的tensor，使用view(3,2)变成
+                                                                     #3×2的新tensor。view(2,-1)表示新的tensor行数=2，列数不确定
+                                                                     #dim=0表示对每一列进行softmax，dim=1表示对每一行进行softmax
+                  
         response = response * penalty
         response = (1 - self.cfg.window_influence) * response + \
             self.cfg.window_influence * self.hann_window
@@ -206,10 +213,19 @@ class TrackerSiamRPN(Tracker):
         # peak location
         best_id = np.argmax(response)
         offset = offsets[:, best_id] * self.z_sz / self.cfg.exemplar_sz
+                                                                        #np.argmax找出矩阵中最大值元素对应的索引值
+                                                                        #对一维矩阵a=[3,1,2,4,6],最大值元素为6，对应索引为4，np.argmax(a)=4
+                                                                        #对二维矩阵b=[[1,5,3];[9,6,2]],np.argmax(b,axis=1)表示按行进行查找
+                                                                        #第一行最大值5，对应索引2,；第二行最大值9，对应索引0，输出[2,0]
+                                                                        #np.argmax(b,axis=0)表示按列进行查找
+                                                                  #第一列最大值9，对应索引1；第二列最大值6，对应索引1；第三列最大值3，对应索引0
+                                                                   #输出[1,1,0]
 
         # update center
         self.center += offset[:2][::-1]
-        self.center = np.clip(self.center, 0, image.shape[:2])
+        self.center = np.clip(self.center, 0, image.shape[:2])   #np.clip(a, a_min, a_max)对原数组进行剪切。a表示原数组，
+                                                                  #a_min表示限定的最小值 也可以是数组 如果为数组时 shape必须和a一样
+                                                                  #a_max表示限定的最大值 也可以是数组 shape和a一样
 
         # update scale
         lr = response[best_id] * self.cfg.lr
@@ -217,10 +233,11 @@ class TrackerSiamRPN(Tracker):
         self.target_sz = np.clip(self.target_sz, 10, image.shape[:2])
 
         # update exemplar and instance sizes
-        context = self.cfg.context * np.sum(self.target_sz)
+        context = self.cfg.context * np.sum(self.target_sz)   
         self.z_sz = np.sqrt(np.prod(self.target_sz + context))
         self.x_sz = self.z_sz * \
-            self.cfg.instance_sz / self.cfg.exemplar_sz
+            self.cfg.instance_sz / self.cfg.exemplar_sz           #np.sum(a),将a中元素全部相加
+                                                                  #np.sqrt(a),对a求平方根
 
         # return 1-indexed and left-top based bounding box
         box = np.array([
@@ -246,12 +263,15 @@ class TrackerSiamRPN(Tracker):
                 anchors[ind, 3] = h * scale
                 ind += 1
         anchors = np.tile(
-            anchors, response_sz * response_sz).reshape((-1, 4))
+            anchors, response_sz * response_sz).reshape((-1, 4))  #np.tile()表示把数组沿各个方向复制
+                                                                  #如a=np.array([1,2];[3,4])。np.tile(a,2)表示把a沿行方向复制两倍
+                                                            #变成([1,2,1,2];[3,4,3,4])。np.tile(a,(2,1))表示把a沿列方向复制2倍，行方向复制1倍
+                                                            #变成([1,2];[3,4];[1,2];[3,4])
 
         begin = -(response_sz // 2) * self.cfg.total_stride
         xs, ys = np.meshgrid(
             begin + self.cfg.total_stride * np.arange(response_sz),
-            begin + self.cfg.total_stride * np.arange(response_sz))
+            begin + self.cfg.total_stride * np.arange(response_sz))    #meshgrid函数用两个坐标轴上的点在平面上画网格
         xs = np.tile(xs.flatten(), (anchor_num, 1)).flatten()
         ys = np.tile(ys.flatten(), (anchor_num, 1)).flatten()
         anchors[:, 0] = xs.astype(np.float32)
@@ -283,20 +303,22 @@ class TrackerSiamRPN(Tracker):
 
     def _crop_and_resize(self, image, center, size, out_size, pad_color):
         # convert box to corners (0-indexed)
-        size = round(size)
+        size = round(size)                                  #round() 方法返回浮点数x的四舍五入值
         corners = np.concatenate((
             np.round(center - (size - 1) / 2),
             np.round(center - (size - 1) / 2) + size))
         corners = np.round(corners).astype(int)
 
         # pad image if necessary
-        pads = np.concatenate((
+        pads = np.concatenate((                                  #np.concatenate表示对多个数组进行拼接
             -corners[:2], corners[2:] - image.shape[:2]))
         npad = max(0, int(pads.max()))
         if npad > 0:
-            image = cv2.copyMakeBorder(
+            image = cv2.copyMakeBorder(                          #cv2.copyMakeBorder()用来给图片添加边框，即padding。
+                                                                 #参数cv2.copyMakeBorder(image,top,bottom,left,right)
+                                                                 #其中image表示原图，top,bottom,left,right表示上下左右分别填充的像素数
                 image, npad, npad, npad, npad,
-                cv2.BORDER_CONSTANT, value=pad_color)
+                cv2.BORDER_CONSTANT, value=pad_color)           #cv2.BORDER_CONSTANT表示固定值填充，边框都填充成一个固定值
 
         # crop image patch
         corners = (corners + npad).astype(int)

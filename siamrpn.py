@@ -85,44 +85,57 @@ class TrackerSiamRPN(Tracker):
 
         # setup GPU device if available
         self.cuda = torch.cuda.is_available()
-        self.device = torch.device('cuda:0' if self.cuda else 'cpu')
+        self.device = torch.device('cuda:0' if self.cuda else 'cpu')  #定义device，其中需要注意的是“cuda:0”代表起始的device_id为0，
+                                                           #如果直接是“cuda”，同样默认是从0开始。可以根据实际需要修改起始位置，如“cuda:1”
+                                                           #一个device是一个对象，这个对象表示torch.sensor在哪个device上
+                                                          #device对象包含device.type（cpu、cuda），还有一个可选择的设备序列号，如果该序列号
+                                                          #没有声明，代表使用当前设备
+                                                          #上述语句表示如果存在cuda则使用当前gpu运行，否则使用cpu运行
 
         # setup model
         self.net = SiamRPN()
         if net_path is not None:
             self.net.load_state_dict(torch.load(
-                net_path, map_location=lambda storage, loc: storage))
+                net_path, map_location=lambda storage, loc: storage))   #pytorch有两种模型保存方式。1保存整个神经网络
+                                                                        #的结构信息和模型参数信息，save的对象是网络net。
+                                                                        #2只保存神经网络的训练模型参数，save的对象是net.state_dict()
+                                                                        #网络较大时，选择第二种节约时间
+                                                                        #对应两种保存模型的方式，pytorch也有两种加载模型的方式
+                                                                  #第一种保存方式，加载模型时通过torch.load('.pth')直接初始化新的神经网络对象
+                                                                      #第二种保存方式，需要首先导入对应的网络，
+                                                                      #再通过net.load_state_dict(torch.load('.pth'))完成模型参数的加载。
         self.net = self.net.to(self.device)
 
-    def parse_args(self, **kargs):
+    def parse_args(self, **kargs):      #定义参数
         self.cfg = {
             'exemplar_sz': 127,       #输入模板尺寸127
             'instance_sz': 271,       #输入样本尺寸271
             'total_stride': 8,
             'context': 0.5,
-            'ratios': [0.33, 0.5, 1, 2, 3],  #5种anchor尺寸
+            'ratios': [0.33, 0.5, 1, 2, 3],  #5种anchor长宽比
             'scales': [8,],
             'penalty_k': 0.055,
             'window_influence': 0.42,
             'lr': 0.295}
 
-        for key, val in kargs.items():
+        for key, val in kargs.items():     #kargs.items()以列表的形式返回kargs的所有键值对，kargs为上面以字典形式输入的参数
             self.cfg.update({key: val})
-        self.cfg = namedtuple('GenericDict', self.cfg.keys())(**self.cfg)
+        self.cfg = namedtuple('GenericDict', self.cfg.keys())(**self.cfg)  #建立一个命名元组，名字为GenericDict,元素为self.cfg.keys
 
     def init(self, image, box):
-        image = np.asarray(image)
+        image = np.asarray(image)       #将输入转换为矩阵格式
 
         # convert box to 0-indexed and center based [y, x, h, w]
-        box = np.array([
+        box = np.array([           
             box[1] - 1 + (box[3] - 1) / 2,
             box[0] - 1 + (box[2] - 1) / 2,
-            box[3], box[2]], dtype=np.float32)
+            box[3], box[2]], dtype=np.float32)              #创建一个ndarry，数据类型为float32
         self.center, self.target_sz = box[:2], box[2:]
 
         # for small target, use larger search region
-        if np.prod(self.target_sz) / np.prod(image.shape[:2]) < 0.004:
-            self.cfg = self.cfg._replace(instance_sz=287)
+        if np.prod(self.target_sz) / np.prod(image.shape[:2]) < 0.004:   #np.prod()函数用来计算所有元素的乘积，对于有多个维度的数组可以指定轴，
+                                                                         #如axis=1指定计算每一行的乘积。
+            self.cfg = self.cfg._replace(instance_sz=287)      #改变样本尺寸为287，默认为271
 
         # generate anchors
         self.response_sz = (self.cfg.instance_sz - \
